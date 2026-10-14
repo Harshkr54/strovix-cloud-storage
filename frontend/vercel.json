@@ -1,0 +1,23 @@
+{
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "https://java-backend-production-54bf.up.railway.app/api/$1"
+    },
+    {
+      "src": "/oauth2/(.*)",
+      "dest": "https://java-backend-production-54bf.up.railway.app/oauth2/$1"
+    },
+    {
+      "src": "/login/oauth2/(.*)",
+      "dest": "https://java-backend-production-54bf.up.railway.app/login/oauth2/$1"
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
+  ]
+}
