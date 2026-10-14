@@ -33,12 +33,18 @@ public class AuthController {
 
     @GetMapping("/me")
     public ResponseEntity<ApiResponse<UserResponse>> me(@AuthenticationPrincipal CustomUserDetails userDetails) {
+        if (userDetails == null || userDetails.getUser() == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.fail("Unauthorized: No active session found", "UNAUTHORIZED"));
+        }
         return ResponseEntity.ok(ApiResponse.success(UserResponse.from(userDetails.getUser())));
     }
 
     @PostMapping("/logout")
     public ResponseEntity<ApiResponse<Void>> logout(@AuthenticationPrincipal CustomUserDetails userDetails) {
-        authService.logout(userDetails.getUser().getId());
+        if (userDetails != null && userDetails.getUser() != null) {
+            authService.logout(userDetails.getUser().getId());
+        }
         return ResponseEntity.ok(ApiResponse.success("Logged out successfully", null));
     }
 
