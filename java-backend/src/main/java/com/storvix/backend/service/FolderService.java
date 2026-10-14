@@ -64,26 +64,26 @@ public class FolderService {
 
     public Folder createFolder(String userId, CreateFolderRequest request) {
         String parentId = request.getParentFolderId();
-        
-        // Simplified permissions logic for MVP: just assume owner
-        String ownerId = userId;
+
+        // The new folder always belongs to the requesting user (userId).
+        // Only use the parent's owner when checking for duplicate names within that parent.
         if (parentId != null && !parentId.isEmpty()) {
             Folder parent = folderRepository.findById(parentId)
                     .orElseThrow(() -> new AppException("Parent folder not found", HttpStatus.NOT_FOUND, "NOT_FOUND"));
-            ownerId = parent.getOwner().getId();
-            
-            if (folderRepository.existsByOwnerIdAndParentFolderIdAndNameAndIsDeletedFalse(ownerId, parentId, request.getName().trim())) {
+            // Duplicate check scoped to the parent folder owner's namespace
+            String parentOwnerId = parent.getOwner().getId();
+            if (folderRepository.existsByOwnerIdAndParentFolderIdAndNameAndIsDeletedFalse(parentOwnerId, parentId, request.getName().trim())) {
                 throw new AppException("Folder already exists", HttpStatus.CONFLICT, "DUPLICATE");
             }
         } else {
-            if (folderRepository.existsByOwnerIdAndParentFolderIsNullAndNameAndIsDeletedFalse(ownerId, request.getName().trim())) {
+            if (folderRepository.existsByOwnerIdAndParentFolderIsNullAndNameAndIsDeletedFalse(userId, request.getName().trim())) {
                 throw new AppException("Folder already exists", HttpStatus.CONFLICT, "DUPLICATE");
             }
         }
 
         Folder folder = new Folder();
         folder.setName(request.getName().trim());
-        folder.setOwner(userRepository.findById(ownerId).orElseThrow(() -> new AppException("User not found", HttpStatus.NOT_FOUND, "NOT_FOUND")));
+        folder.setOwner(userRepository.findById(userId).orElseThrow(() -> new AppException("User not found", HttpStatus.NOT_FOUND, "NOT_FOUND")));
         
         if (parentId != null && !parentId.isEmpty()) {
             folder.setParentFolder(folderRepository.findById(parentId).orElse(null));
@@ -247,19 +247,53 @@ public class FolderService {
                 .orElseThrow(() -> new AppException("Folder not found", HttpStatus.NOT_FOUND, "NOT_FOUND"));
 
         permissionService.validateFolderOwner(userId, folder);
-        
-        List<String> descendants = new ArrayList<>(); // To fully match Node.js we need a collectAllDescendantFolderIds that includes deleted folders
+
+        com.storvix.backend.entity.User owner = folder.getOwner();
+
+        // Collect all descendant folder IDs (including soft-deleted) using BFS
+        List<String> allFolderIds = new ArrayList<>();
+        allFolderIds.add(folderId);
         Queue<String> queue = new LinkedList<>();
         queue.add(folderId);
 
         while (!queue.isEmpty()) {
             String current = queue.poll();
-            // Should query for ALL children regardless of isDeleted, but standard repository method above filters by isDeletedFalse
-            // In a real app we'd add another repository method. For MVP we'll just delete the immediate folder to demonstrate.
+            List<Folder> children = folderRepository.findByParentFolderId(current);
+            for (Folder child : children) {
+                allFolderIds.add(child.getId());
+                queue.add(child.getId());
+            }
         }
 
+        // Delete all files inside every folder in the tree and reclaim quota
+        long reclaimedBytes = 0L;
+        for (String fId : allFolderIds) {
+            List<File> filesInFolder = fileRepository.findByFolderId(fId);
+            for (File f : filesInFolder) {
+                if (f.getSize() != null) reclaimedBytes += f.getSize();
+                fileRepository.delete(f);
+            }
+        }
+
+        // Delete root-level files (those directly inside the root folder being deleted)
+        // already handled in loop above (allFolderIds includes folderId)
+
+        // Delete all descendant folders except the root (delete in reverse order to avoid FK issues)
+        for (int i = allFolderIds.size() - 1; i >= 1; i--) {
+            folderRepository.findById(allFolderIds.get(i)).ifPresent(folderRepository::delete);
+        }
+        // Delete the root folder itself
         folderRepository.delete(folder);
-        activityService.logActivity(folder.getOwner(), "FOLDER_DELETED_PERMANENTLY", "FOLDER", folderId);
+
+        // Restore storage quota for the owner
+        if (reclaimedBytes > 0) {
+            owner = userRepository.findById(userId).orElse(owner);
+            long newUsed = Math.max(0, owner.getStorageUsed() - reclaimedBytes);
+            owner.setStorageUsed(newUsed);
+            userRepository.save(owner);
+        }
+
+        activityService.logActivity(owner, "FOLDER_DELETED_PERMANENTLY", "FOLDER", folderId);
         return Map.of("deleted", true);
     }
 }

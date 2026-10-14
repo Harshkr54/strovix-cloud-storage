@@ -12,6 +12,8 @@ public interface FolderRepository extends JpaRepository<Folder, String> {
     @EntityGraph(attributePaths = {"tags"})
     List<Folder> findByParentFolderIdAndIsDeletedFalseOrderByName(String parentFolderId);
 
+    List<Folder> findByParentFolderId(String parentFolderId);
+
     @EntityGraph(attributePaths = {"tags"})
     List<Folder> findByOwnerIdAndParentFolderIsNullAndIsDeletedFalseOrderByName(String ownerId);
 

@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -108,26 +109,24 @@ public class ShareService {
                 throw new AppException("Cannot share with the owner", HttpStatus.BAD_REQUEST, "INVALID_SHARE");
             }
 
-            File finalFile = file;
-            Folder finalFolder = folder;
-            Share share = shareRepository.findAll().stream()
-                .filter(s -> s.getSharedWith().getId().equals(target.getId()) &&
-                        ((finalFile != null && s.getFile() != null && s.getFile().getId().equals(finalFile.getId())) ||
-                         (finalFolder != null && s.getFolder() != null && s.getFolder().getId().equals(finalFolder.getId()))))
-                .findFirst().orElse(null);
+            // Use targeted query instead of full table scan
+            Optional<Share> existingShare = file != null
+                    ? shareRepository.findByFileIdAndSharedWithId(file.getId(), target.getId())
+                    : shareRepository.findByFolderIdAndSharedWithId(folder.getId(), target.getId());
 
-            if (share == null) {
+            Share share;
+            if (existingShare.isEmpty()) {
                 share = new Share();
                 share.setFile(file);
                 share.setFolder(folder);
                 share.setOwner(userRepository.findById(ownerId).orElse(null));
                 share.setSharedWith(target);
                 share.setRole(request.getRole());
-                share = shareRepository.save(share);
             } else {
+                share = existingShare.get();
                 share.setRole(request.getRole());
-                share = shareRepository.save(share);
             }
+            share = shareRepository.save(share);
 
             List<ShareInvite> invites = new ArrayList<>();
             if (file != null) {
@@ -175,20 +174,18 @@ public class ShareService {
 
         List<ShareResponse> result = new ArrayList<>();
 
-        List<Share> shares = shareRepository.findAll().stream()
-            .filter(s -> (file != null && s.getFile() != null && s.getFile().getId().equals(file.getId())) ||
-                         (folder != null && s.getFolder() != null && s.getFolder().getId().equals(folder.getId())))
-            .toList();
-
+        // Use targeted queries instead of full table scan
+        List<Share> shares = file != null
+                ? shareRepository.findByFileId(file.getId())
+                : shareRepository.findByFolderId(folder.getId());
         shares.forEach(s -> result.add(ShareResponse.from(s)));
 
-        List<ShareInvite> invites = new ArrayList<>();
+        List<ShareInvite> invites;
         if (file != null) {
             invites = shareInviteRepository.findByFileIdAndStatus(file.getId(), "pending");
         } else {
             invites = shareInviteRepository.findByFolderIdAndStatus(folder.getId(), "pending");
         }
-
         invites.forEach(inv -> result.add(ShareResponse.from(inv)));
 
         return result;

@@ -9,6 +9,8 @@ public interface FileRepository extends JpaRepository<File, String> {
     @EntityGraph(attributePaths = {"tags"})
     List<File> findByFolderIdAndIsDeletedFalseAndUploadStatusOrderByName(String folderId, String uploadStatus);
 
+    List<File> findByFolderId(String folderId);
+
     @EntityGraph(attributePaths = {"tags"})
     List<File> findByOwnerIdAndFolderIsNullAndIsDeletedFalseAndUploadStatusOrderByName(String ownerId, String uploadStatus);
 

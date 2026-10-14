@@ -9,4 +9,6 @@ public interface ShareRepository extends JpaRepository<Share, String> {
     List<Share> findBySharedWithId(String sharedWithId);
     Optional<Share> findByFileIdAndSharedWithId(String fileId, String sharedWithId);
     Optional<Share> findByFolderIdAndSharedWithId(String folderId, String sharedWithId);
+    List<Share> findByFileId(String fileId);
+    List<Share> findByFolderId(String folderId);
 }
